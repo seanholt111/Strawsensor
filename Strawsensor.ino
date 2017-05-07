@@ -5,7 +5,7 @@
 //represents pin 1. Count around counter clockwise
 //1 - clock (pin 21 on due) with 10k ohm pull up resistor to 3.3v
 //2 - gnd
-//3 - gnd
+//3 - gnd or 3.3v (chip select bit, see sensor address)
 //4 - not used
 //5 - 3.3v
 //6 - 3.3v
@@ -20,15 +20,17 @@ const byte RESET = 0x1E; //Can be used to reset from unkown state
 const byte CONVERT_PRESS_4096 = 0x48;//reads pressure, 4096 resolution
 const byte CONVERT_TEMP_4096 = 0x58;// reads temp
 const byte PROM_READ = 0xA2; // starting address of prom read
-const byte SENSOR_ADDRESS = 0x77; //address with chip select bit pulled (0x76 low) (0x77 high)
+const byte SENSOR_ADDRESS_1 = 0x76; //address with chip select bit pulled (0x76 high) (0x77 low)
+const byte SENSOR_ADDRESS_2 = 0x77; //address with chip select bit pulled (0x76 high) (0x77 low)
 
 void setup() {
   // put your setup code here, to run once:
   Wire.begin();
   Serial.begin(9600); 
   
-  sendResetCommand();  
-  readCalibrationData();
+  sendResetCommand(SENSOR_ADDRESS_1);  
+  sendResetCommand(SENSOR_ADDRESS_2);  
+  readCalibrationData(SENSOR_ADDRESS_2);
 }
 
 unsigned int SENS, P_OFF, TCS, TCO, T_ref, TEMPSENS;
@@ -44,26 +46,32 @@ TEMPSENS = temp coeff of the temp
 long int reading = 0; 
 
 void loop() {
-  long int readtime = micros(); 
-  long int rawTemp = readI2C(CONVERT_TEMP_4096, 3,true);
-  long int rawPress = readI2C(CONVERT_PRESS_4096, 3,true);
-  //Serial.println(rawPress);
-  //Serial.println(rawTemp);
-  double compensatedPressure = calcPressure(rawPress, rawTemp)/10.0; 
-  readtime = micros() - readtime; 
-  
-  Serial.print("Pressure Reading: ");
-  Serial.println(compensatedPressure); 
-  Serial.println("");  
-  Serial.println("Total microseconds for read: " + String(readtime)); 
-  delay(1000); 
-  
-  //if((compensatedPressure<900.0) || (compensatedPressure>1500.0)){
-  //  sendResetCommand();    
-  //}
+  double pressure1, pressure2; 
+  readPressures(pressure1, pressure2); 
+  Serial.println("Pressure Reading 1: "+ String(pressure1)); 
+  Serial.println("Pressure Reading 2: "+ String(pressure2)); 
+  Serial.println(""); 
+  delay(1000);
 }
 
-long int readI2C(int readAddress, int dataLength, bool ADC_value){
+
+void readPressures(double& pressure1, double& pressure2){
+  //long int readtime = micros(); 
+  long int rawTemp_1 = readI2C(CONVERT_TEMP_4096, 3,true,SENSOR_ADDRESS_1);
+  long int rawPress_1 = readI2C(CONVERT_PRESS_4096, 3,true,SENSOR_ADDRESS_1);
+  pressure1 = calcPressure(rawPress_1, rawTemp_1)/10.0; 
+
+  long int rawTemp_2 = readI2C(CONVERT_TEMP_4096, 3,true,SENSOR_ADDRESS_2);
+  long int rawPress_2 = readI2C(CONVERT_PRESS_4096, 3,true,SENSOR_ADDRESS_2);
+  pressure2 = calcPressure(rawPress_2, rawTemp_2)/10.0; 
+  //readtime = micros() - readtime; 
+  
+
+  //Serial.println("");  
+  //Serial.println("Total microseconds for read: " + String(readtime)); 
+}
+
+long int readI2C(int readAddress, int dataLength, bool ADC_value, byte sensor_address){
   /*readAddress = register to read
   datalength = number of bytes to be read
   ADC_value = whether or not we are reading from the ADC. On the pressure sensor we are required to send a 0x00
@@ -71,7 +79,7 @@ long int readI2C(int readAddress, int dataLength, bool ADC_value){
   */
   
   // step 1: instruct sensor to read 
-  Wire.beginTransmission(SENSOR_ADDRESS); //address with chip select bit pulled low (0x77 high)
+  Wire.beginTransmission(sensor_address); //address with chip select bit pulled low (0x77 high)
   Wire.write(readAddress);  //set register to pressure reading
   Wire.endTransmission();      // stop transmitting
 
@@ -80,13 +88,13 @@ long int readI2C(int readAddress, int dataLength, bool ADC_value){
 
   if(ADC_value){
     // step 3: instruct sensor to return a particular echo reading
-    Wire.beginTransmission(SENSOR_ADDRESS); // 
+    Wire.beginTransmission(sensor_address); // 
     Wire.write(byte(0x00));      
     Wire.endTransmission();      
   }
 
   // step 4: request reading from sensor
-  int recievedquantity = Wire.requestFrom(SENSOR_ADDRESS, 3,false);    // request 3 bytes from slave device #112
+  int recievedquantity = Wire.requestFrom(sensor_address, 3,false);    // request 3 bytes from slave device #112
   // step 5: receive reading from sensor
   reading = Wire.read();  // receive high byte (overwrites previous reading)
   for(int i = 1; i<dataLength; i++){
@@ -96,15 +104,15 @@ long int readI2C(int readAddress, int dataLength, bool ADC_value){
   return reading;  
 }
 
-
-void readCalibrationData(){
+//TODO: Need to pull calibration data from each sensor for better accuracy. For now shouldnt make too much difference
+void readCalibrationData(byte sensor_address){
   //unsigned int SENS, P_OFF, TCS, TCO, T_ref, TEMPSENS;
-  SENS = int(readI2C(PROM_READ, 2,false));
-  P_OFF =  int(readI2C(PROM_READ+2, 2,false));
-  TCS = int(readI2C(PROM_READ+4, 2,false));
-  TCO  = int(readI2C(PROM_READ+6, 2,false));
-  T_ref  = int(readI2C(PROM_READ+8, 2,false));
-  TEMPSENS  = int(readI2C(PROM_READ+10, 2,false));
+  SENS = int(readI2C(PROM_READ, 2,false,sensor_address));
+  P_OFF =  int(readI2C(PROM_READ+2, 2,false,sensor_address));
+  TCS = int(readI2C(PROM_READ+4, 2,false,sensor_address));
+  TCO  = int(readI2C(PROM_READ+6, 2,false,sensor_address));
+  T_ref  = int(readI2C(PROM_READ+8, 2,false,sensor_address));
+  TEMPSENS  = int(readI2C(PROM_READ+10, 2,false,sensor_address));
 }
 
 double calcPressure(long int rawPress, long int rawTemp){
@@ -116,9 +124,9 @@ double calcPressure(long int rawPress, long int rawTemp){
    return pressure; 
 }
 
-void sendResetCommand(){
+void sendResetCommand(byte sensor_address){
   Serial.println("Resetting");
-  Wire.beginTransmission(SENSOR_ADDRESS); //address with chip select bit pulled low (0x77 high)
+  Wire.beginTransmission(sensor_address); //address with chip select bit pulled low (0x77 high)
   Wire.write(RESET);  //set register to pressure reading
   Wire.endTransmission();      // stop transmitting
   delay(250);
