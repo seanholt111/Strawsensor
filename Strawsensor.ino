@@ -23,6 +23,9 @@ const byte PROM_READ = 0xA2; // starting address of prom read
 const byte SENSOR_ADDRESS_1 = 0x76; //address with chip select bit pulled (0x76 high) (0x77 low)
 const byte SENSOR_ADDRESS_2 = 0x77; //address with chip select bit pulled (0x76 high) (0x77 low)
 
+//Global pressure offsets
+double pressure1_offset, pressure2_offset; 
+
 void setup() {
   // put your setup code here, to run once:
   Wire.begin();
@@ -31,6 +34,9 @@ void setup() {
   sendResetCommand(SENSOR_ADDRESS_1);  
   sendResetCommand(SENSOR_ADDRESS_2);  
   readCalibrationData(SENSOR_ADDRESS_2);
+  delay(1000); 
+  zeroReadings(); 
+  
 }
 
 unsigned int SENS, P_OFF, TCS, TCO, T_ref, TEMPSENS;
@@ -48,10 +54,9 @@ long int reading = 0;
 void loop() {
   double pressure1, pressure2; 
   readPressures(pressure1, pressure2); 
-  Serial.println("Pressure Reading 1: "+ String(pressure1)); 
-  Serial.println("Pressure Reading 2: "+ String(pressure2)); 
-  Serial.println(""); 
-  delay(1000);
+  double pressure_delta = (pressure1 - pressure1_offset) - (pressure2 - pressure2_offset); 
+  Serial.println("Pressure delta (mbar): " + String(pressure_delta)); 
+  delay(100);
 }
 
 
@@ -69,6 +74,11 @@ void readPressures(double& pressure1, double& pressure2){
 
   //Serial.println("");  
   //Serial.println("Total microseconds for read: " + String(readtime)); 
+}
+
+void zeroReadings(){
+  readPressures(pressure1_offset, pressure2_offset); 
+  Serial.println("Sensors have been zeroed to: " + String(pressure1_offset) + " and " + String(pressure2_offset));
 }
 
 long int readI2C(int readAddress, int dataLength, bool ADC_value, byte sensor_address){
