@@ -12,7 +12,7 @@
 //7 - SDA (pin 20 on due) -I2C communication- 10k ohm pull up resistor to 3.3v
 //8 - not used
 
-
+//now working on two sensors
 
 //Sensor's memory register addresses:
 const byte RAW_PRESSURE = 0x00; //3 most significant bits of pressure
